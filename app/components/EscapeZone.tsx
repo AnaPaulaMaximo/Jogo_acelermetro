@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Dimensions, Text, Image, Animated } from 'react-native';
+import { StyleSheet, View, Dimensions, Text, Image } from 'react-native';
 import { Accelerometer } from 'expo-sensors';
 import { Audio } from 'expo-av';
 import StartScreen from './StartScreen';
@@ -121,7 +121,7 @@ export default function EscapeZone() {
     const steerSensitivity = 0.4;
     const maxAngle = 45;
 
-    let rotationChange = -accelerometerData.y * steerSensitivity * 10;
+    let rotationChange = accelerometerData.y * steerSensitivity * 10;
     let newRotation = carRotation + rotationChange;
 
     newRotation = Math.max(-maxAngle, Math.min(maxAngle, newRotation));
@@ -132,7 +132,6 @@ export default function EscapeZone() {
 
     const carSegment = roadSegments.find(s => carPosition.y >= s.y && carPosition.y < s.y + ROAD_SEGMENT_HEIGHT);
     
-    // **AJUSTE 2: NÃO PERDE MAIS AO ENCOSTAR NA BORDA**
     if (carSegment) {
         if (newX < carSegment.x) {
             newX = carSegment.x;
@@ -149,11 +148,16 @@ export default function EscapeZone() {
     setCarPosition({ ...carPosition, x: newX });
 
   }, [accelerometerData, gameState, speed]);
+  
+  useEffect(() => {
+    if (gameState === 'playing' && score > 0 && score % 200 === 0) {
+      setSpeed(prevSpeed => Math.min(prevSpeed + 0.2, MAX_SPEED));
+    }
+  }, [score, gameState]);
 
   useEffect(() => {
     if (gameState !== 'playing') return;
 
-    // **AJUSTE 1: VELOCIDADE EFETIVA COM TURBO**
     const effectiveSpeed = speed + turboBoost;
 
     const gameLoop = setInterval(() => {
@@ -228,13 +232,12 @@ export default function EscapeZone() {
     return () => clearInterval(gameLoop);
   }, [gameState, speed, turboBoost, score, roadSegments, curve]);
 
-  // **AJUSTE 3: DETECÇÃO DE COLISÃO POR RAIO (MAIS JUSTA)**
   useEffect(() => {
     if (gameState !== 'playing') return;
 
     const carCenterX = carPosition.x + CAR_SIZE / 2;
     const carCenterY = carPosition.y + CAR_SIZE / 2;
-    const carRadius = CAR_SIZE * 0.35; // Raio de colisão menor que o tamanho da imagem
+    const carRadius = CAR_SIZE * 0.35; 
 
     obstacles.forEach(obstacle => {
         const obstacleCenterX = obstacle.x + OBSTACLE_SIZE / 2;
@@ -263,6 +266,8 @@ export default function EscapeZone() {
         if (distance < carRadius + powerUpRadius) {
             setTurbo(prev => Math.min(prev + 25, INITIAL_TURBO));
             setPowerUps(prev => prev.filter(p => p.id !== powerUp.id));
+            setTurboBoost(8); 
+            setTimeout(() => setTurboBoost(0), 2000);
         }
     });
   }, [carPosition, obstacles, powerUps, gameState]);
@@ -295,13 +300,7 @@ export default function EscapeZone() {
             />
         ))}
 
-      <View style={styles.hud}>
-        <Text style={styles.hudText}>Pontos: {score}</Text>
-        <View>
-          <Text style={styles.hudText}>Turbo: {turbo}%</Text>
-          <View style={styles.turboBar}><View style={{width: `${turbo}%`, ...styles.turboFill}}/></View>
-        </View>
-      </View>
+      <Text style={styles.scoreText}>Pontos: {score}</Text>
 
       {obstacles.map(o => (
         <Image key={o.id} source={require('../../assets/images/cone.png')} style={[styles.item, { width: OBSTACLE_SIZE, height: OBSTACLE_SIZE, left: o.x, top: o.y }]} />
@@ -330,7 +329,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#27ae60', // Cor da grama
+    backgroundColor: '#27ae60', 
   },
   roadSegment: {
       position: 'absolute',
@@ -342,34 +341,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#16a085',
     zIndex: 0,
   },
-  hud: {
+  scoreText: {
     position: 'absolute',
     top: 40,
     left: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 10,
-    borderRadius: 10,
-  },
-  hudText: {
     fontSize: 20,
     color: '#fff',
     fontWeight: 'bold',
-  },
-  turboBar: {
-      height: 10,
-      width: 100,
-      backgroundColor: 'rgba(255,255,255,0.3)',
-      borderRadius: 5,
-      marginTop: 5,
-  },
-  turboFill: {
-      height: '100%',
-      backgroundColor: '#f1c40f',
-      borderRadius: 5,
+    zIndex: 10,
   },
   car: {
     position: 'absolute',
