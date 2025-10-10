@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Escape Zone",
+    "slug": "escape-zone",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/images/car.png",
+    "scheme": "escapezone",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/car.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/car.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ],
+      "expo-audio"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
