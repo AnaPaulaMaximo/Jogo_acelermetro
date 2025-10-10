@@ -12,7 +12,7 @@ const StartScreen: React.FC<Props> = ({ onStart }) => {
       <Text style={styles.title}>Escape Zone</Text>
       <Image source={require('../../assets/images/car.png')} style={styles.carImage} />
       <Text style={styles.instructions}>
-        Incline para dirigir, acelerar e frear. Sacuda para usar o turbo e fuja dos zumbis!
+        Incline para dirigir e desvie dos obstáculos!
       </Text>
       <Pressable style={styles.button} onPress={onStart}>
         <Text style={styles.buttonText}>Iniciar Corrida</Text>
@@ -32,14 +32,14 @@ const styles = StyleSheet.create({
     fontSize: 60,
     fontWeight: 'bold',
     color: '#e74c3c',
-    marginBottom: 20,
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
+    paddingTop: 20,
   },
   carImage: {
-    width: 200,
-    height: 200,
+    width: 150,
+    height: 150,
     resizeMode: 'contain',
     marginBottom: 20,
   },
@@ -55,6 +55,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 40,
     borderRadius: 50,
+    marginBottom: 70,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
