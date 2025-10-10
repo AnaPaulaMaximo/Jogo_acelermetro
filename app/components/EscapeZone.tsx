@@ -41,6 +41,7 @@ export default function EscapeZone() {
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
   const [turbo, setTurbo] = useState(INITIAL_TURBO);
+  const [turboBoost, setTurboBoost] = useState(0);
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameOver'>('start');
   const [lastShake, setLastShake] = useState(0);
 
@@ -71,6 +72,7 @@ export default function EscapeZone() {
     setScore(0);
     setSpeed(INITIAL_SPEED);
     setTurbo(INITIAL_TURBO);
+    setTurboBoost(0);
     setCarPosition({ x: width / 2 - CAR_SIZE / 2, y: height - CAR_SIZE * 2 });
     setCarRotation(0);
     setObstacles([]);
@@ -90,14 +92,14 @@ export default function EscapeZone() {
     setAccelerometerData(data);
     const shakeThreshold = 1.8;
     const now = Date.now();
-    if ((now - lastShake) > 1000) {
+    if ((now - lastShake) > 1000 && turboBoost === 0) {
         if ((Math.abs(data.x) > shakeThreshold || Math.abs(data.y) > shakeThreshold || Math.abs(data.z) > shakeThreshold)) {
             if (turbo > 0) {
-                setSpeed(prev => Math.min(prev + 5, MAX_SPEED + 5));
+                setTurboBoost(8); // Adiciona um forte impulso de velocidade
                 setTurbo(prev => Math.max(prev - 25, 0));
                 turboSound.current?.replayAsync();
                 setLastShake(now);
-                setTimeout(() => setSpeed(INITIAL_SPEED), 2000);
+                setTimeout(() => setTurboBoost(0), 2000); // Duração do turbo
             }
         }
     }
@@ -111,35 +113,35 @@ export default function EscapeZone() {
     Accelerometer.setUpdateInterval(16);
     const subscription = Accelerometer.addListener(handleAccelerometerData);
     return () => subscription.remove();
-  }, [gameState, turbo, lastShake]);
+  }, [gameState, turbo, lastShake, turboBoost]);
 
   useEffect(() => {
     if (gameState !== 'playing') return;
 
-    const steerSensitivity = 0.5; // Sensibilidade de rotação
-    const maxAngle = 45; // Ângulo máximo de rotação do carro
+    const steerSensitivity = 0.4;
+    const maxAngle = 45;
 
-    // Calcula a rotação baseada na inclinação, com sensibilidade reduzida
     let rotationChange = -accelerometerData.y * steerSensitivity * 10;
     let newRotation = carRotation + rotationChange;
 
-    // Limita a rotação máxima
     newRotation = Math.max(-maxAngle, Math.min(maxAngle, newRotation));
     setCarRotation(newRotation);
 
-    // Converte a rotação (em graus) para radianos para calcular o movimento
     const angleInRadians = newRotation * (Math.PI / 180);
-    const newX = carPosition.x + speed * Math.sin(angleInRadians);
+    let newX = carPosition.x + speed * Math.sin(angleInRadians);
 
-    // Checa se o carro está fora da pista
     const carSegment = roadSegments.find(s => carPosition.y >= s.y && carPosition.y < s.y + ROAD_SEGMENT_HEIGHT);
+    
+    // **AJUSTE 2: NÃO PERDE MAIS AO ENCOSTAR NA BORDA**
     if (carSegment) {
-        if (newX < carSegment.x || newX > carSegment.x + carSegment.width - CAR_SIZE) {
-            crashSound.current?.replayAsync();
-            setGameState('gameOver'); // Fim de jogo se sair da pista
+        if (newX < carSegment.x) {
+            newX = carSegment.x;
         }
-    } else {
-        // Se não encontrar um segmento (carro saiu completamente da pista visível)
+        if (newX > carSegment.x + carSegment.width - CAR_SIZE) {
+            newX = carSegment.x + carSegment.width - CAR_SIZE;
+        }
+    } else if(roadSegments.length > 0) {
+        // Se o carro sair da pista visível, fim de jogo
         crashSound.current?.replayAsync();
         setGameState('gameOver');
     }
@@ -151,30 +153,33 @@ export default function EscapeZone() {
   useEffect(() => {
     if (gameState !== 'playing') return;
 
+    // **AJUSTE 1: VELOCIDADE EFETIVA COM TURBO**
+    const effectiveSpeed = speed + turboBoost;
+
     const gameLoop = setInterval(() => {
       setScore(prev => prev + 1);
 
-      setObstacles(prev => prev.map(o => ({ ...o, y: o.y + speed })).filter(o => o.y < height + OBSTACLE_SIZE));
-      setPowerUps(prev => prev.map(p => ({ ...p, y: p.y + speed })).filter(p => p.y < height + TURBO_SIZE));
-      setScenery(prev => prev.map(s => ({ ...s, y: s.y + speed })).filter(s => s.y < height + TREE_SIZE));
+      setObstacles(prev => prev.map(o => ({ ...o, y: o.y + effectiveSpeed })).filter(o => o.y < height + OBSTACLE_SIZE));
+      setPowerUps(prev => prev.map(p => ({ ...p, y: p.y + effectiveSpeed })).filter(p => p.y < height + TURBO_SIZE));
+      setScenery(prev => prev.map(s => ({ ...s, y: s.y + effectiveSpeed })).filter(s => s.y < height + TREE_SIZE));
 
 
       setRoadSegments(prev => {
         const movedSegments = prev
-          .map(segment => ({ ...segment, y: segment.y + speed }))
+          .map(segment => ({ ...segment, y: segment.y + effectiveSpeed }))
           .filter(segment => segment.y < height + ROAD_SEGMENT_HEIGHT);
 
         const lastSegment = movedSegments[movedSegments.length - 1];
 
-        if (lastSegment && lastSegment.y > -ROAD_SEGMENT_HEIGHT * 5) { // Gera mais segmentos à frente
+        if (lastSegment && lastSegment.y > -ROAD_SEGMENT_HEIGHT * 5) {
             const difficulty = Math.min(score / 15000, 1);
-
+            
             let newCurve = { ...curve };
             if(curve.duration <= 0) {
                 const newDirection = Math.random() > 0.4 ? (Math.random() > 0.5 ? 1 : -1) : 0;
                 newCurve = {
                     direction: newDirection,
-                    duration: Math.floor(Math.random() * 100 + 80) // Curvas mais longas
+                    duration: Math.floor(Math.random() * 100 + 80)
                 }
                 setCurve(newCurve);
             } else {
@@ -221,30 +226,44 @@ export default function EscapeZone() {
     }, 16);
 
     return () => clearInterval(gameLoop);
-  }, [gameState, speed, score, roadSegments, curve]);
+  }, [gameState, speed, turboBoost, score, roadSegments, curve]);
 
+  // **AJUSTE 3: DETECÇÃO DE COLISÃO POR RAIO (MAIS JUSTA)**
   useEffect(() => {
     if (gameState !== 'playing') return;
-    const carRect = { x: carPosition.x, y: carPosition.y, width: CAR_SIZE, height: CAR_SIZE };
+
+    const carCenterX = carPosition.x + CAR_SIZE / 2;
+    const carCenterY = carPosition.y + CAR_SIZE / 2;
+    const carRadius = CAR_SIZE * 0.35; // Raio de colisão menor que o tamanho da imagem
+
     obstacles.forEach(obstacle => {
-      const obstacleRect = { x: obstacle.x, y: obstacle.y, width: OBSTACLE_SIZE, height: OBSTACLE_SIZE };
-      if (carRect.x < obstacleRect.x + obstacleRect.width &&
-          carRect.x + carRect.width > obstacleRect.x &&
-          carRect.y < obstacleRect.y + obstacleRect.height &&
-          carRect.height + carRect.y > obstacleRect.y) {
-        crashSound.current?.replayAsync();
-        setGameState('gameOver');
-      }
+        const obstacleCenterX = obstacle.x + OBSTACLE_SIZE / 2;
+        const obstacleCenterY = obstacle.y + OBSTACLE_SIZE / 2;
+        const obstacleRadius = OBSTACLE_SIZE * 0.4;
+        
+        const dx = carCenterX - obstacleCenterX;
+        const dy = carCenterY - obstacleCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < carRadius + obstacleRadius) {
+            crashSound.current?.replayAsync();
+            setGameState('gameOver');
+        }
     });
+
     powerUps.forEach(powerUp => {
-      const powerUpRect = { x: powerUp.x, y: powerUp.y, width: TURBO_SIZE, height: TURBO_SIZE };
-      if (carRect.x < powerUpRect.x + powerUpRect.width &&
-        carRect.x + carRect.width > powerUpRect.x &&
-        carRect.y < powerUpRect.y + powerUpRect.height &&
-        carRect.height + carRect.y > powerUpRect.y) {
-          setTurbo(prev => Math.min(prev + 25, INITIAL_TURBO));
-          setPowerUps(prev => prev.filter(p => p.id !== powerUp.id));
-      }
+        const powerUpCenterX = powerUp.x + TURBO_SIZE / 2;
+        const powerUpCenterY = powerUp.y + TURBO_SIZE / 2;
+        const powerUpRadius = TURBO_SIZE / 2;
+
+        const dx = carCenterX - powerUpCenterX;
+        const dy = carCenterY - powerUpCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < carRadius + powerUpRadius) {
+            setTurbo(prev => Math.min(prev + 25, INITIAL_TURBO));
+            setPowerUps(prev => prev.filter(p => p.id !== powerUp.id));
+        }
     });
   }, [carPosition, obstacles, powerUps, gameState]);
 
