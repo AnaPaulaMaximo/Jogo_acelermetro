@@ -19,7 +19,6 @@ const TREE_SIZE = 80;
 const INITIAL_SPEED = 4;
 const MAX_SPEED = 12;
 const ROAD_SEGMENT_HEIGHT = 20;
-
 // --- DEFINIÇÃO DE TIPOS (TYPESCRIPT) ---
 type RoadSegment = {
   id: number;
@@ -35,7 +34,6 @@ type SceneryObject = {
     size: number;
 };
 
-// **NOVO TIPO:** Para objetos genéricos do jogo, melhorando a tipagem
 type GameObject = {
   id: number;
   x: number;
@@ -44,45 +42,44 @@ type GameObject = {
 
 // --- COMPONENTE PRINCIPAL DO JOGO --- 
 export default function EscapeZone() {
-  // Dados do acelerômetro
+  // Estados do componente
   const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0 });
-  // Posição do carro
   const [carPosition, setCarPosition] = useState({ x: width / 2 - CAR_SIZE / 2, y: height - CAR_SIZE * 2 });
-  // Rotação do carro
   const [carRotation, setCarRotation] = useState(0);
-  // Obstáculos na tela (com tipagem corrigida)
   const [obstacles, setObstacles] = useState<GameObject[]>([]);
-  // Turbos na tela (com tipagem corrigida)
   const [powerUps, setPowerUps] = useState<GameObject[]>([]);
-  // Segmentos da pista
   const [roadSegments, setRoadSegments] = useState<RoadSegment[]>([]);
-  // Árvores
   const [scenery, setScenery] = useState<SceneryObject[]>([]);
-  // Direção e duração da curva atual da pista
   const [curve, setCurve] = useState({ direction: 0, duration: 0 });
-  // Pontuação do jogador
   const [score, setScore] = useState(0);
-  // Velocidade atual
   const [speed, setSpeed] = useState(INITIAL_SPEED);
-  // Impulso de velocidade ao usar o turbo
   const [turboBoost, setTurboBoost] = useState(0);
-  // Estado atual: 'start', 'playing', ou 'gameOver'
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameOver'>('start');
 
-
-  // --- REFERÊNCIAS PARA ÁUDIO ---
+  // Referências para Áudio e Estado do Jogo
   const crashSound = useRef<Audio.Sound | null>(null);
   const turboSound = useRef<Audio.Sound | null>(null);
 
-  // **NOVO REF:** Usado para acessar o estado atualizado dentro do loop do jogo sem recriá-lo.
-  const gameLoopStateRef = useRef({ roadSegments, curve, score });
-
-  useEffect(() => {
-    // Atualiza o ref a cada renderização para que o loop sempre tenha os dados mais recentes.
-    gameLoopStateRef.current = { roadSegments, curve, score };
+  const stateRef = useRef({
+    roadSegments,
+    curve,
+    score,
+    carPosition,
+    carRotation,
+    accelerometerData,
   });
 
-  // Função assíncrona para carregar os arquivos de áudio
+  useEffect(() => {
+    stateRef.current = {
+      roadSegments,
+      curve,
+      score,
+      carPosition,
+      carRotation,
+      accelerometerData,
+    };
+  });
+
   async function setupAudio() {
     try {
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
@@ -95,9 +92,6 @@ export default function EscapeZone() {
     }
   }
 
-  // --- EFEITOS (useEffect) ---
-
-  // Roda apenas uma vez para configurar os áudios.
   useEffect(() => {
     setupAudio();
     return () => {
@@ -106,8 +100,6 @@ export default function EscapeZone() {
     };
   }, []); 
 
-
-  // Função para iniciar/reiniciar o jogo
   const handleStartGame = () => {
     setScore(0);
     setSpeed(INITIAL_SPEED);
@@ -117,9 +109,10 @@ export default function EscapeZone() {
     setObstacles([]);
     setPowerUps([]);
     setScenery([]);
+    setCurve({ direction: 0, duration: 0 });
   
     const initialSegments = Array.from({ length: Math.ceil(height / ROAD_SEGMENT_HEIGHT) + 5 }).map((_, i) => ({
-        id: i,
+        id: Date.now() + i,
         y: height - (i * ROAD_SEGMENT_HEIGHT),
         x: width * 0.2,
         width: width * 0.6,
@@ -128,7 +121,6 @@ export default function EscapeZone() {
     setGameState('playing'); 
   };
 
-  // useEffect para o acelerômetro
   useEffect(() => {
     if (gameState !== 'playing') {
       Accelerometer.removeAllListeners();
@@ -137,125 +129,121 @@ export default function EscapeZone() {
     Accelerometer.setUpdateInterval(16); 
     const subscription = Accelerometer.addListener(setAccelerometerData); 
     return () => subscription.remove(); 
-  }, [gameState]); // **CORRIGIDO:** Removida a dependência desnecessária 'turboBoost'
+  }, [gameState]);
 
-  // useEffect para controlar o carro
   useEffect(() => {
-    if (gameState !== 'playing') return; 
-    const steerSensitivity = 0.4; 
-    const maxAngle = 45; 
-    let rotationChange = accelerometerData.y * steerSensitivity * 10;
-    let newRotation = carRotation + rotationChange;
-    newRotation = Math.max(-maxAngle, Math.min(maxAngle, newRotation));
-    setCarRotation(newRotation);
-    const angleInRadians = newRotation * (Math.PI / 180);
-    let newX = carPosition.x + speed * Math.sin(angleInRadians);
-    
-    // Verifica se o carro está dentro da pista
-    const carSegment = roadSegments.find(s => carPosition.y >= s.y && carPosition.y < s.y + ROAD_SEGMENT_HEIGHT);
-    if (carSegment) {
-        if (newX < carSegment.x) {
-            newX = carSegment.x;
-        }
-        if (newX > carSegment.x + carSegment.width - CAR_SIZE) {
-            newX = carSegment.x + carSegment.width - CAR_SIZE;
-        }
-    } else if(roadSegments.length > 0) { // Se não encontrar um segmento, o carro saiu da pista
-        crashSound.current?.replayAsync();
-        setGameState('gameOver');
-    }
-    setCarPosition({ ...carPosition, x: newX }); 
-  }, [accelerometerData, gameState, speed, roadSegments]); 
-
-  // useEffect para aumentar a velocidade com o tempo
-  useEffect(() => {
-    if (gameState === 'playing' && score > 0 && score % 200 === 0 && score > 1) {
+    if (gameState === 'playing' && score > 0 && score % 200 === 0) {
       setSpeed(prevSpeed => Math.min(prevSpeed + 0.2, MAX_SPEED));
     }
   }, [score, gameState]); 
 
-  // --- O LOOP PRINCIPAL DO JOGO (TOTALMENTE REFEITO) ---
+  // --- O LOOP PRINCIPAL DO JOGO (LÓGICA CENTRALIZADA) ---
   useEffect(() => {
     if (gameState !== 'playing') return;
 
     const gameLoop = setInterval(() => {
       const effectiveSpeed = speed + turboBoost;
-      
-      // 1. AUMENTA A PONTUAÇÃO (usando a forma de callback para segurança)
-      setScore(prev => prev + 1);
+      const currentState = stateRef.current;
 
-      // 2. MOVE TODOS OS OBJETOS PARA BAIXO
+      // --- 1. LÓGICA DE CONTROLE DO CARRO ---
+      const steerSensitivity = 0.4; 
+      const maxAngle = 45; 
+      let rotationChange = currentState.accelerometerData.y * steerSensitivity * 10;
+      let newRotation = currentState.carRotation + rotationChange;
+      newRotation = Math.max(-maxAngle, Math.min(maxAngle, newRotation));
+      setCarRotation(newRotation);
+
+      const angleInRadians = newRotation * (Math.PI / 180);
+      let newX = currentState.carPosition.x + effectiveSpeed * Math.sin(angleInRadians);
+      
+      const carSegment = currentState.roadSegments.find(s => currentState.carPosition.y >= s.y && currentState.carPosition.y < s.y + ROAD_SEGMENT_HEIGHT);
+      if (carSegment) {
+          if (newX < carSegment.x) newX = carSegment.x;
+          if (newX > carSegment.x + carSegment.width - CAR_SIZE) {
+            newX = carSegment.x + carSegment.width - CAR_SIZE;
+          }
+      } else if (currentState.roadSegments.length > 0) {
+          crashSound.current?.replayAsync();
+          setGameState('gameOver');
+          return;
+      }
+      setCarPosition({ ...currentState.carPosition, x: newX });
+
+      // --- 2. ATUALIZA PONTUAÇÃO E POSIÇÃO DOS OBJETOS ---
+      setScore(prev => prev + 1);
       setObstacles(prev => prev.map(o => ({ ...o, y: o.y + effectiveSpeed })).filter(o => o.y < height + OBSTACLE_SIZE));
       setPowerUps(prev => prev.map(p => ({ ...p, y: p.y + effectiveSpeed })).filter(p => p.y < height + TURBO_SIZE));
       setScenery(prev => prev.map(s => ({ ...s, y: s.y + effectiveSpeed })).filter(s => s.y < height + TREE_SIZE));
 
-      // 3. ATUALIZA E GERA A PISTA
-      // Lê o estado atual do ref para evitar dependências no useEffect
-      const { roadSegments: currentRoadSegments, curve: currentCurve, score: currentScore } = gameLoopStateRef.current;
+      // --- 3. ATUALIZA E GERA A PISTA ---
+      setRoadSegments(prevSegments => {
+        const movedSegments = prevSegments
+          .map(segment => ({ ...segment, y: segment.y + effectiveSpeed }))
+          .filter(segment => segment.y < height + ROAD_SEGMENT_HEIGHT);
+        
+        const lastSegment = movedSegments[movedSegments.length - 1];
+        if (!lastSegment || lastSegment.y < -ROAD_SEGMENT_HEIGHT * 5) return movedSegments;
 
-      const movedSegments = currentRoadSegments
-        .map(segment => ({ ...segment, y: segment.y + effectiveSpeed }))
-        .filter(segment => segment.y < height + ROAD_SEGMENT_HEIGHT);
+        const difficulty = Math.min(currentState.score / 15000, 1);
+        let updatedCurve = { ...currentState.curve };
+
+        if (currentState.curve.duration <= 0) {
+            const newDirection = Math.random() > 0.4 ? (Math.random() > 0.5 ? 1 : -1) : 0; 
+            updatedCurve = {
+                direction: newDirection,
+                duration: Math.floor(Math.random() * 100 + 80)
+            };
+            setCurve(updatedCurve);
+        } else {
+            setCurve(c => ({ ...c, duration: c.duration - 1 }));
+        }
+
+        const newWidth = width * (0.6 - (0.35 * difficulty)); 
+        const curveStrength = updatedCurve.direction * (1 + 3 * difficulty);
+        let newRoadX = lastSegment.x + curveStrength;
+        if (newRoadX < 0) newRoadX = 0;
+        if (newRoadX + newWidth > width) newRoadX = width - newWidth;
+
+        const newSegment: RoadSegment = {
+            id: Math.random(),
+            y: lastSegment.y - ROAD_SEGMENT_HEIGHT,
+            x: newRoadX,
+            width: newWidth,
+        };
+
+        if (Math.random() < 0.15) { 
+            const side = Math.random() > 0.5 ? 1 : -1; 
+            const treeX = side > 0 ? newSegment.x + newSegment.width + Math.random() * 80 : newSegment.x - 60 - Math.random() * 80;
+            setScenery(prev => [...prev, {id: Math.random(), x: treeX, y: newSegment.y, size: Math.random() * 50 + 40}]);
+        }
+        
+        return [...movedSegments, newSegment];
+      });
+
+      // --- 4. GERA OBSTÁCULOS E TURBOS (LÓGICA CORRIGIDA) ---
+      // ALTERAÇÃO: Esta lógica agora roda a cada quadro, de forma independente.
+      const { roadSegments: currentRoadSegments } = currentState;
+      const topSegment = currentRoadSegments.reduce(
+        (top, seg) => (seg.y < top.y ? seg : top),
+        currentRoadSegments[0] || null
+      );
       
-      const lastSegment = movedSegments[movedSegments.length - 1];
-      let newSegments = [...movedSegments];
-
-      if (lastSegment && lastSegment.y > -ROAD_SEGMENT_HEIGHT * 5) {
-          const difficulty = Math.min(currentScore / 15000, 1);
-          
-          // Lógica para criar curvas na pista
-          let updatedCurve = { ...currentCurve };
-          if(currentCurve.duration <= 0) {
-              const newDirection = Math.random() > 0.4 ? (Math.random() > 0.5 ? 1 : -1) : 0; 
-              updatedCurve = {
-                  direction: newDirection,
-                  duration: Math.floor(Math.random() * 100 + 80)
-              };
-              setCurve(updatedCurve);
-          } else {
-              setCurve(c => ({...c, duration: c.duration - 1}));
-          }
-
-          const newWidth = width * (0.6 - (0.35 * difficulty)); 
-          const curveStrength = updatedCurve.direction * (1 + 3 * difficulty);
-          let newX = lastSegment.x + curveStrength;
-          if (newX < 0) newX = 0;
-          if (newX + newWidth > width) newX = width - newWidth;
-
-          const newSegment: RoadSegment = {
-              id: Math.random(),
-              y: lastSegment.y - ROAD_SEGMENT_HEIGHT,
-              x: newX,
-              width: newWidth,
-          };
-          newSegments.push(newSegment);
-
-          // 4. GERA CENÁRIO (ÁRVORES)
-          if (Math.random() < 0.15) { 
-              const side = Math.random() > 0.5 ? 1 : -1; 
-              const treeX = side > 0 ? newSegment.x + newSegment.width + Math.random() * 80 : newSegment.x - 60 - Math.random() * 80;
-              setScenery(prevScenery => [...prevScenery, {id: Math.random(), x: treeX, y: newSegment.y, size: Math.random() * 50 + 40}]);
-          }
-      }
-      setRoadSegments(newSegments);
-
-      // 5. GERA OBSTÁCULOS E TURBOS
-      const currentSegmentForSpawning = newSegments.find(s => s.y > -ROAD_SEGMENT_HEIGHT && s.y < 0);
-      if (currentSegmentForSpawning) {
+      if (topSegment) {
+        // Gera um obstáculo com 3% de chance por quadro
         if (Math.random() < 0.03) { 
-          const spawnX = currentSegmentForSpawning.x + Math.random() * (currentSegmentForSpawning.width - OBSTACLE_SIZE);
+          const spawnX = topSegment.x + Math.random() * (topSegment.width - OBSTACLE_SIZE);
           setObstacles(prev => [...prev, { id: Math.random(), x: spawnX, y: -OBSTACLE_SIZE }]);
         }
+        // Gera um turbo com 0.8% de chance por quadro
         if (Math.random() < 0.008) { 
-          const spawnX = currentSegmentForSpawning.x + Math.random() * (currentSegmentForSpawning.width - TURBO_SIZE);
+          const spawnX = topSegment.x + Math.random() * (topSegment.width - TURBO_SIZE);
           setPowerUps(prev => [...prev, { id: Math.random(), x: spawnX, y: -TURBO_SIZE }]);
         }
       }
     }, 16); 
 
     return () => clearInterval(gameLoop); 
-  }, [gameState, speed, turboBoost]); // Dependências mínimas necessárias para o cálculo de `effectiveSpeed`
-
+  }, [gameState, speed, turboBoost]);
 
   // useEffect para DETECÇÃO DE COLISÃO
   useEffect(() => {
@@ -265,39 +253,32 @@ export default function EscapeZone() {
     const carCenterY = carPosition.y + CAR_SIZE / 2;
     const carRadius = CAR_SIZE * 0.35; 
 
-    // Colisão com Obstáculos
-    obstacles.forEach(obstacle => {
-        const obstacleCenterX = obstacle.x + OBSTACLE_SIZE / 2;
-        const obstacleCenterY = obstacle.y + OBSTACLE_SIZE / 2;
-        const obstacleRadius = OBSTACLE_SIZE * 0.4;
-        const dx = carCenterX - obstacleCenterX;
-        const dy = carCenterY - obstacleCenterY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < carRadius + obstacleRadius) {
+    for (const obstacle of obstacles) {
+        const dx = carCenterX - (obstacle.x + OBSTACLE_SIZE / 2);
+        const dy = carCenterY - (obstacle.y + OBSTACLE_SIZE / 2);
+        if (Math.sqrt(dx * dx + dy * dy) < carRadius + (OBSTACLE_SIZE * 0.4)) {
             crashSound.current?.replayAsync();
             setGameState('gameOver');
+            return;
         }
-    });
+    }
 
-    // Colisão com Power-ups
-    powerUps.forEach(powerUp => {
-        const powerUpCenterX = powerUp.x + TURBO_SIZE / 2;
-        const powerUpCenterY = powerUp.y + TURBO_SIZE / 2;
-        const powerUpRadius = TURBO_SIZE / 2;
-        const dx = carCenterX - powerUpCenterX;
-        const dy = carCenterY - powerUpCenterY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < carRadius + powerUpRadius) {
-            setPowerUps(prev => prev.filter(p => p.id !== powerUp.id)); // **CORRIGIDO:** Removido '/'
+    const newPowerUps = powerUps.filter(powerUp => {
+        const dx = carCenterX - (powerUp.x + TURBO_SIZE / 2);
+        const dy = carCenterY - (powerUp.y + TURBO_SIZE / 2);
+        if (Math.sqrt(dx * dx + dy * dy) < carRadius + (TURBO_SIZE / 2)) {
             setTurboBoost(8); 
             turboSound.current?.replayAsync(); 
             setTimeout(() => setTurboBoost(0), 2000); 
+            return false;
         }
+        return true;
     });
-  }, [carPosition, obstacles, powerUps, gameState]); 
 
+    if (newPowerUps.length !== powerUps.length) {
+      setPowerUps(newPowerUps);
+    }
+  }, [carPosition, obstacles, powerUps, gameState]); 
 
   // --- RENDERIZAÇÃO ---
   if (gameState === 'start') {
@@ -314,10 +295,7 @@ export default function EscapeZone() {
             <View key={s.id} style={[styles.tree, {left: s.x, top: s.y, width: s.size, height: s.size, borderRadius: s.size / 2}]} />
         ))}
         {roadSegments.map(segment => (
-            <View
-                key={segment.id}
-                style={[styles.roadSegment, { top: segment.y, left: segment.x, width: segment.width }]}
-            />
+            <View key={segment.id} style={[styles.roadSegment, { top: segment.y, left: segment.x, width: segment.width }]} />
         ))}
         <Text style={styles.scoreText}>Pontos: {score}</Text>
 
