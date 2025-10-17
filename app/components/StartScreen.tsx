@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
-    paddingTop: 20,
+    paddingTop: 50,
   },
   carImage: {
     width: 150,
